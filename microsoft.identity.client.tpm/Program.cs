@@ -255,6 +255,7 @@ namespace microsoft.identity.client.tpm
             byte[] responseData;
             uint responseSize;
 
+            //Error here - need to work on this one - TODO 
             var result = Tbsip_Submit_Command(hTbsContext_, 0, (uint)rxblob.Length, rxblob, out responseSize, out responseData);
             
             if (result != 0)
