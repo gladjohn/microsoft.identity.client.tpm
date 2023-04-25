@@ -76,10 +76,12 @@ namespace microsoft.identity.client.tpm
         /// <param name="locality">Used to set the locality for the TPM command. TBS_COMMAND_LOCALITY_ZERO - 0 (0x0) is the only supported locality.</param>
         /// <param name="priority">The priority level that the command should have.</param>
         /// <param name="cmdBuf">A pointer to a buffer that contains the TPM command to process.</param>
-        /// <param name="cmdBufLen"></param>
-        /// <param name="respBuf"></param>
-        /// <param name="respBufLen"></param>
-        /// <returns></returns>
+        /// <param name="cmdBufLen">The length, in bytes, of the command.</param>
+        /// <param name="respBuf">A pointer to a buffer to receive the result of the TPM command. This buffer can be the same as cmdBuf.</param>
+        /// <param name="respBufLen">An integer that, on input, specifies the size, in bytes, of the result buffer. This value is set when the submit command returns. 
+        /// If the supplied buffer is too small, this parameter, on output, is set to the required size, in bytes, for the result.</param>
+        /// <returns>If the function succeeds, the function returns TBS_SUCCESS. A command can be submitted successfully and still fail at the TPM. 
+        /// In this case, the failure code is returned as a standard TPM error in the result buffer.</returns>
         [DllImport("tbs.dll")]
         static extern uint Tbsip_Submit_Command(IntPtr hContext, 
             uint locality,
@@ -183,36 +185,11 @@ namespace microsoft.identity.client.tpm
                 throw new Exception("Error creating TPM context");
             }
 
-            // build the command buffer to seal the data
-            byte[] cmdBuf = new byte[12 + publicKeyBlob.Length];
-            cmdBuf[0] = 0x00; // TPM_ST_NO_SESSIONS
-            cmdBuf[1] = 0x00; // TPM_RH_NULL
-            cmdBuf[2] = 0x01; // TPM_CC_CREATE
-            cmdBuf[3] = 0x00;
-            cmdBuf[4] = 0x00;
-            cmdBuf[5] = 0x00;
-            cmdBuf[6] = (byte)((publicKeyBlob.Length >> 8) & 0xFF);
-            cmdBuf[7] = (byte)(publicKeyBlob.Length & 0xFF);
-            Array.Copy(publicKeyBlob, 0, cmdBuf, 12, publicKeyBlob.Length);
+            //Transmit the data 
+            var response = tpmTransmit(publicKeyBlob);
 
-            // submit the command buffer to the TPM and get the response
-            byte[] respBuf = new byte[4096];
-            int respBufLen = respBuf.Length;
-
-            result = Tbsip_Submit_Command(hTbsContext_, 0, 0, cmdBuf, cmdBuf.Length, respBuf, ref respBufLen);
-
-            if (result != TBS_SUCCESS)
-            {
-                Console.WriteLine($"Tbsip_Submit_Command failed with error code {result}");
-                return;
-            }
-
-            // extract the sealed data from the response buffer
-            byte[] sealedData = new byte[respBufLen];
-            Array.Copy(respBuf, 10, sealedData, 0, respBufLen - 10);
-
-            Console.WriteLine($"Sealed data size: {sealedData.Length} bytes");
-            Console.WriteLine($"Sealed data : {sealedData}");
+            Console.WriteLine($"Sealed data size: {response.Length} bytes");
+            Console.WriteLine($"Sealed data : {response}");
 
             Tbsip_Context_Close(hTbsContext_);
             Marshal.FreeHGlobal(hTbsContext_);
@@ -226,6 +203,34 @@ namespace microsoft.identity.client.tpm
             CngKey key = CngKey.Create(CngAlgorithm.Rsa); // Create a new RSA key
 
             return key;
+        }
+
+        /// <summary>
+        /// Wrapper for the native Tbsi_Submit_Command call.
+        /// </summary>
+        private static  byte[] tpmTransmit(byte[] blob)
+        {
+            byte[] respBuf = new byte[4096];
+            int respBufLen = blob.Length;
+
+            if (respBufLen <= 0)
+                throw new InvalidOperationException("Cant transmit empty or negative size blob.");
+
+            uint result = Tbsip_Submit_Command(hTbsContext_,
+                0 /* Locality */,
+                0 /* Priority */,
+                blob, respBufLen,
+                respBuf, ref respBufLen);
+
+            if (result != 0)
+            {
+                if (respBufLen > 0)
+                    throw new Exception();
+            }
+
+            byte[] rxblob = new byte[respBufLen];
+            System.Array.Copy(respBuf, rxblob, respBufLen);
+            return rxblob;
         }
     }
 }
