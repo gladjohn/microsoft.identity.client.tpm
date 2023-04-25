@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Contexts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -90,6 +91,15 @@ namespace microsoft.identity.client.tpm
             int cmdBufLen, 
             byte[] respBuf, 
             ref int respBufLen);
+
+        [DllImport("tbs.dll")]
+        public static extern uint Tbsip_Submit_Command(
+            IntPtr hContext,
+            uint protocolId,
+            uint commandSize,
+            byte[] command,
+            out uint responseSize,
+            out byte[] response);
 
         public enum TBS_RESULT : uint
         {
@@ -188,6 +198,9 @@ namespace microsoft.identity.client.tpm
             //Transmit the data 
             var response = tpmTransmit(publicKeyBlob);
 
+            //Read the data 
+            tpmReadData(hTbsContext_, response);
+
             Console.WriteLine($"Sealed data size: {response.Length} bytes");
             Console.WriteLine($"Sealed data : {response}");
 
@@ -231,6 +244,26 @@ namespace microsoft.identity.client.tpm
             byte[] rxblob = new byte[respBufLen];
             System.Array.Copy(respBuf, rxblob, respBufLen);
             return rxblob;
+        }
+
+        /// <summary>
+        /// Read data from TPM
+        /// </summary>
+        private static void tpmReadData(IntPtr hTbsContext_, byte[] rxblob)
+        {
+            // Read data from the TPM
+            byte[] responseData;
+            uint responseSize;
+
+            var result = Tbsip_Submit_Command(hTbsContext_, 0, (uint)rxblob.Length, rxblob, out responseSize, out responseData);
+            
+            if (result != 0)
+            {
+                Console.WriteLine("Error reading data from TPM: 0x{0:x}", result);
+            }
+
+            // Display the response data
+            Console.WriteLine("Response data: {0}", BitConverter.ToString(responseData));
         }
     }
 }
